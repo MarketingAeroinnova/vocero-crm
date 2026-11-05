@@ -14,9 +14,29 @@ export type FormLead = {
   /** Identidad de WhatsApp (solo dígitos, con código de país). */
   phone: string;
   email: string | null;
+  /** Programa de interés ya con su nombre legible (o el texto tal cual). */
+  programa: string | null;
+  motivo: string | null;
+  mensaje: string | null;
   /** Resto de campos del formulario, ya acotados, para la ficha. */
   ficha: Record<string, string>;
 };
+
+/** Valores del desplegable «Programa de interés» del formulario → nombre legible. */
+export const PROGRAMAS: Record<string, string> = {
+  privado: "Piloto Privado",
+  comercial: "Piloto Comercial",
+  mcc: "Curso MCC",
+  ltc: "Curso LTC",
+  drones: "Curso de drones (empresas e instituciones)",
+  otro: "Aún no lo sabe",
+};
+
+export function nombrePrograma(raw: string | null | undefined): string | null {
+  const t = (raw ?? "").trim();
+  if (!t) return null;
+  return PROGRAMAS[plain(t)] ?? t.slice(0, 120);
+}
 
 export type FormLeadError = "sin_telefono" | "telefono_invalido";
 
@@ -24,6 +44,9 @@ const PHONE_KEYS = ["telefono", "tel", "phone", "fono", "celular", "movil", "wha
 const EMAIL_KEYS = ["email", "correo", "mail"];
 const NAME_KEYS = ["nombre", "name", "fname", "firstname"];
 const SURNAME_KEYS = ["apellido", "lname", "lastname", "surname"];
+const PROGRAMA_KEYS = ["programa", "programainteres", "interes", "curso"];
+const MOTIVO_KEYS = ["subject", "motivo", "asunto"];
+const MENSAJE_KEYS = ["comment", "mensaje", "message", "comentario"];
 
 /** Campos técnicos que MetForm/WordPress agregan y que no son del interesado. */
 const IGNORED_KEYS = [
@@ -125,6 +148,9 @@ export function extractFormLead(
   let email: string | null = null;
   let first: string | null = null;
   let last: string | null = null;
+  let programa: string | null = null;
+  let motivo: string | null = null;
+  let mensaje: string | null = null;
   const rest: Record<string, string> = {};
 
   for (const [key, value] of Object.entries(body)) {
@@ -137,6 +163,9 @@ export function extractFormLead(
     else if (!email && matches(key, EMAIL_KEYS)) email = text.slice(0, 200);
     else if (!last && matches(key, SURNAME_KEYS)) last = text;
     else if (!first && matches(key, NAME_KEYS)) first = text;
+    else if (!programa && matches(key, PROGRAMA_KEYS)) programa = nombrePrograma(text);
+    else if (!motivo && matches(key, MOTIVO_KEYS)) motivo = text.slice(0, 200);
+    else if (!mensaje && matches(key, MENSAJE_KEYS)) mensaje = text.slice(0, 2000);
     else if (
       Object.keys(rest).length < MAX_FIELDS &&
       key.length <= MAX_KEY_LEN
@@ -159,5 +188,53 @@ export function extractFormLead(
 
   const ficha = { ...rest };
   if (email) ficha.email = email;
-  return { ok: true, lead: { name, phone: phone.phone, email, ficha } };
+  if (programa) ficha.programa = programa;
+  if (motivo) ficha.motivo = motivo;
+  if (mensaje) ficha.mensaje = mensaje.slice(0, MAX_VALUE_LEN);
+  return {
+    ok: true,
+    lead: { name, phone: phone.phone, email: email ? email.toLowerCase() : null, programa, motivo, mensaje, ficha },
+  };
+}
+
+/** Una consulta anterior de la misma persona, para reconocerla si vuelve. */
+export type ConsultaPrevia = {
+  submittedAt: Date;
+  programa: string | null;
+  motivo: string | null;
+  respuestaCorreo: string;
+};
+
+const fechaCl = (d: Date) =>
+  d.toLocaleDateString("es-CL", {
+    timeZone: "America/Santiago",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+
+/**
+ * Lo que se anota en la ficha de quien ya había escrito antes. Vacío si es su
+ * primera consulta: así la ficha de un lead nuevo no se llena de ceros.
+ */
+export function resumenConsultasPrevias(
+  previas: ConsultaPrevia[]
+): Record<string, string | number> {
+  if (previas.length === 0) return {};
+  const ultima = [...previas].sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime())[0]!;
+  const detalle = [ultima.programa, ultima.motivo].filter(Boolean).join(" · ");
+  return {
+    consultas_previas: previas.length,
+    ultima_consulta_previa: `${fechaCl(ultima.submittedAt)}${detalle ? ` · ${detalle}` : ""}`.slice(0, 480),
+  };
+}
+
+/** Texto de la ficha para el estado de la respuesta por correo. */
+export function textoRespuestaCorreo(
+  estado: "enviado" | "fallido",
+  at: Date
+): string {
+  return estado === "enviado"
+    ? `Automático enviado ${fechaCl(at)}`
+    : `Automático NO se pudo enviar ${fechaCl(at)}`;
 }

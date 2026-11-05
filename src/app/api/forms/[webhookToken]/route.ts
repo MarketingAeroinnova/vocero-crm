@@ -2,7 +2,7 @@ import { getDb, schema } from "@/lib/db";
 import { getEnv } from "@/lib/env";
 import { extractFormLead, parseFormBody } from "@/lib/form-lead";
 import { checkRateLimit, clientIp } from "@/lib/rate-limit";
-import { saveFormLead } from "@/server/form-lead";
+import { recordSubmission, saveFormLead } from "@/server/form-lead";
 import { isValidWebhookToken } from "@/server/inbox/webhook";
 
 /**
@@ -60,5 +60,12 @@ export async function POST(req: Request, { params }: Params) {
   if (!org) return Response.json({ error: "sin_organizacion" }, { status: 503 });
 
   const result = await saveFormLead(org.id, extracted.lead);
-  return Response.json({ ok: true, created: result.created });
+  const formId = typeof body.form_id === "string" ? body.form_id.slice(0, 40) : "";
+  const consulta = await recordSubmission(org.id, extracted.lead, result.contactId, formId);
+  return Response.json({
+    ok: true,
+    created: result.created,
+    submissionId: consulta.submissionId,
+    previas: consulta.previas,
+  });
 }

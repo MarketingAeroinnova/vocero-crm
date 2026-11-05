@@ -26,3 +26,20 @@ como `application/x-www-form-urlencoded`; también se acepta JSON.
 
 `200 {ok, created}` · `404` token · `422` `sin_telefono` | `telefono_invalido` |
 `cuerpo_ilegible` · `413` · `429` (60/min por IP) · `503` sin organización.
+
+## Consultas, históricos y respuesta por correo (070)
+
+Cada envío queda además como fila en `form_submission` (correo, nombre, teléfono,
+programa, motivo, mensaje, fecha). Sirve para reconocer a quien ya había escrito:
+si llega un envío con un correo o teléfono conocido, la ficha del contacto suma
+`consultas_previas` y `ultima_consulta_previa`.
+
+- `POST /api/forms/<token>` ahora responde también `submissionId` y `previas`.
+- `POST /api/forms/<token>/respuesta` `{submissionId, estado: "enviado"|"fallido"}`:
+  el sitio avisa si el correo automático salió; queda en la consulta y en la
+  ficha (`respuesta_correo`). Un equipo que responde a mano puede editar esa
+  clave en la ficha.
+- `POST /api/forms/historicos` (con sesión): carga consultas anteriores al CRM
+  (`{rows:[{fecha ISO, nombre, apellidos, email, motivo, mensaje, telefono?}]}`,
+  hasta 500). No crea contactos ni leads; es re-ejecutable.
+- Campo del formulario: `mf-programa` (privado, comercial, mcc, ltc, drones, otro).

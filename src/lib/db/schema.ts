@@ -1401,3 +1401,70 @@ export const conversationNote = pgTable(
     index("conversation_note_conv_idx").on(t.organizationId, t.conversationId, t.createdAt),
   ]
 );
+
+/* ============================================================
+ * 070 — Consultas por formulario web
+ * ============================================================ */
+
+/**
+ * Cada envío del formulario de contacto de la landing, uno por fila.
+ *
+ * Tabla propia y no solo la ficha del contacto por dos razones: (1) los envíos
+ * HISTÓRICOS anteriores al CRM no traen teléfono y por eso no pueden ser
+ * contactos (la identidad del CRM es el teléfono), pero el negocio quiere
+ * reconocerlos si vuelven; (2) la ficha guarda el último valor de cada clave,
+ * y aquí hace falta el registro de TODAS las consultas y de si se respondió a
+ * cada una.
+ *
+ * El correo es la llave para reconocer a quien ya había escrito. Va en
+ * minúsculas. `contactId` se llena cuando el envío trae un teléfono válido.
+ */
+export const formSubmission = pgTable(
+  "form_submission",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    /** Identificador del formulario en el sitio (MetForm id), o "historico". */
+    formId: text("form_id").notNull().default(""),
+    origen: text("origen", { enum: ["formulario", "historico"] })
+      .notNull()
+      .default("formulario"),
+    email: text("email").notNull().default(""),
+    name: text("name").notNull().default(""),
+    phone: text("phone"),
+    programa: text("programa"),
+    motivo: text("motivo"),
+    mensaje: text("mensaje"),
+    contactId: text("contact_id").references(() => contact.id, {
+      onDelete: "set null",
+    }),
+    /** Cuándo se envió el formulario (en históricos, la fecha original). */
+    submittedAt: timestamp("submitted_at").notNull().defaultNow(),
+    /**
+     * Respuesta por correo a ESTA consulta. `sin_dato` = no se sabe (todo lo
+     * histórico); `pendiente` = recién llegó; `enviado`/`fallido` = el intento
+     * del correo automático; `manual` = alguien del equipo respondió a mano.
+     */
+    respuestaCorreo: text("respuesta_correo", {
+      enum: ["sin_dato", "pendiente", "enviado", "fallido", "manual"],
+    })
+      .notNull()
+      .default("pendiente"),
+    respuestaCorreoAt: timestamp("respuesta_correo_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("form_submission_org_email_idx").on(t.organizationId, t.email),
+    index("form_submission_org_contact_idx").on(t.organizationId, t.contactId),
+    // Importar dos veces el mismo histórico no duplica: misma persona, mismo
+    // formulario, mismo instante.
+    uniqueIndex("form_submission_dedup_uq").on(
+      t.organizationId,
+      t.formId,
+      t.email,
+      t.submittedAt
+    ),
+  ]
+);
