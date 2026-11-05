@@ -34,7 +34,7 @@ describe("fuente efectiva", () => {
 describe("catálogo de fuentes", () => {
   it("es cerrado y cubre lo que el dueño pidió", () => {
     expect([...SOURCE_VALUES].sort()).toEqual(
-      ["anuncio", "conocido", "organico", "otro", "referido"].sort()
+      ["anuncio", "conocido", "landing", "organico", "otro", "referido"].sort()
     );
   });
 

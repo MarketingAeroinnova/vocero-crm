@@ -187,6 +187,7 @@ export type SourceValue =
   | "organico"
   | "referido"
   | "conocido"
+  | "landing"
   | "otro";
 
 export type SourceDto = {

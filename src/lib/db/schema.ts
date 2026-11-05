@@ -175,7 +175,7 @@ export const contact = pgTable(
      * que ya existían.
      */
     source: text("source", {
-      enum: ["anuncio", "organico", "referido", "conocido", "otro"],
+      enum: ["anuncio", "organico", "referido", "conocido", "landing", "otro"],
     }),
     /**
      * 027 — El agente no le responde a esta persona: clientes, miembros,
