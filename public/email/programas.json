@@ -1,0 +1,26 @@
+{
+  "privado": {
+    "nombre": "Piloto Privado",
+    "html": "<p style=\"margin:0 0 14px;font-size:16px;line-height:1.65;\">Vimos que te interesa <strong>el programa de Piloto Privado</strong>. Es el primer paso para convertirte en piloto: te acompañamos desde la primera clase hasta tu licencia.</p>"
+  },
+  "comercial": {
+    "nombre": "Piloto Comercial",
+    "html": "<p style=\"margin:0 0 14px;font-size:16px;line-height:1.65;\">Vimos que te interesa <strong>el programa de Piloto Comercial</strong>, la formación para dedicarte profesionalmente a volar.</p>"
+  },
+  "mcc": {
+    "nombre": "Curso MCC",
+    "html": "<p style=\"margin:0 0 14px;font-size:16px;line-height:1.65;\">Vimos que te interesa <strong>el curso MCC</strong>, que prepara para operar en tripulación múltiple.</p>"
+  },
+  "ltc": {
+    "nombre": "Curso LTC",
+    "html": "<p style=\"margin:0 0 14px;font-size:16px;line-height:1.65;\">Vimos que te interesa <strong>el curso LTC</strong>.</p>"
+  },
+  "drones": {
+    "nombre": "Cursos de drones",
+    "html": "<p style=\"margin:0 0 14px;font-size:16px;line-height:1.65;\">Vimos que te interesan <strong>nuestros cursos de drones para empresas e instituciones</strong>.</p>"
+  },
+  "_default": {
+    "nombre": "",
+    "html": "<p style=\"margin:0 0 14px;font-size:16px;line-height:1.65;\">Cuéntanos qué buscas y te orientamos hacia el programa que mejor se ajuste a ti.</p>"
+  }
+}

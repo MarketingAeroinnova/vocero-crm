@@ -43,3 +43,17 @@ si llega un envío con un correo o teléfono conocido, la ficha del contacto sum
   (`{rows:[{fecha ISO, nombre, apellidos, email, motivo, mensaje, telefono?}]}`,
   hasta 500). No crea contactos ni leads; es re-ejecutable.
 - Campo del formulario: `mf-programa` (privado, comercial, mcc, ltc, drones, otro).
+
+## Plantilla del correo automático
+
+El correo de respuesta se arma en el sitio (WordPress) pero su contenido se edita
+aquí, en `public/email/`:
+
+- `correo-aeroinnova.html`: la plantilla. Marcadores `{{nombre}}`,
+  `{{bloque_programa}}` y `{{texto_whatsapp}}`.
+- `programas.json`: el párrafo por programa de interés (`privado`, `comercial`,
+  `mcc`, `ltc`, `drones`) y `_default` si no eligió o no se reconoce.
+
+Se publican en `https://crm.aeroinnova.com/email/…`; el fragmento de WordPress las
+baja y las guarda 1 hora. Si el CRM no responde, sale un correo de texto simple.
+No pongas datos privados en esos archivos: son públicos.
