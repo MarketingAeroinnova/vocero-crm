@@ -809,6 +809,14 @@ export const calendarSettings = pgTable(
     connector: text("connector").notNull().default("enlace-fijo"),
     /** Sala fija del conector `enlace-fijo`; null ⇒ citas sin link. */
     meetingLink: text("meeting_link"),
+    /**
+     * 070 — Tipos de cita (llamada, visita, videollamada…), cada uno con su
+     * responsable, horario y reglas. NULL ⇒ la agenda de siempre, un solo
+     * horario para todo: lo anterior no cambia para quien no los configura.
+     */
+    appointmentTypes: jsonb("appointment_types"),
+    /** Tipo que se usa cuando quien reserva no dice cuál (p. ej. un bot sin ese parámetro). */
+    defaultTypeKey: text("default_type_key"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -834,7 +842,8 @@ export const booking = pgTable(
     })
       .notNull()
       .default("agendada"),
-    source: text("source", { enum: ["manual", "ai"] })
+    // 070 — `web`: la persona agendó sola desde la página pública de agenda.
+    source: text("source", { enum: ["manual", "ai", "web"] })
       .notNull()
       .default("manual"),
     contactId: text("contact_id").references(() => contact.id, {
@@ -868,6 +877,27 @@ export const booking = pgTable(
     linkPending: boolean("link_pending").notNull().default(false),
     /** Conversación del Laboratorio: jamás llama a un conector real. */
     isTest: boolean("is_test").notNull().default(false),
+    /**
+     * 070 — Qué tipo de cita es (`appointment_type.key`). NULL en las citas de
+     * la agenda de siempre y en los bloqueos.
+     */
+    appointmentType: text("appointment_type"),
+    /**
+     * 070 — La persona que la atiende. Dos citas de la MISMA persona no pueden
+     * ocupar el mismo instante; las de personas distintas sí. Vacío = la agenda
+     * única de siempre, donde todo comparte un solo recurso.
+     */
+    resource: text("resource").notNull().default(""),
+    /** 070 — A quien se le mandó la invitación. */
+    attendeeEmail: text("attendee_email"),
+    /** 070 — Dónde es (dirección). Copia histórica, como el enlace. */
+    location: text("location"),
+    /**
+     * 070 — El traslado que ocupa a la persona antes y después. Se COPIA al
+     * crear: cambiar el tipo no reescribe lo ya agendado.
+     */
+    bufferBeforeMinutes: integer("buffer_before_minutes").notNull().default(0),
+    bufferAfterMinutes: integer("buffer_after_minutes").notNull().default(0),
     notes: text("notes"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -883,8 +913,8 @@ export const booking = pgTable(
      * alternativas frescas. Las citas de prueba quedan fuera: no consumen la
      * agenda real.
      */
-    uniqueIndex("booking_org_active_slot_uq")
-      .on(t.organizationId, t.scheduledAt)
+    uniqueIndex("booking_org_resource_active_slot_uq")
+      .on(t.organizationId, t.resource, t.scheduledAt)
       .where(
         sql`${t.status} in ('agendada','realizada') and ${t.isTest} = false`
       ),
@@ -913,6 +943,8 @@ export const offeredSlot = pgTable(
     startUtc: timestamp("start_utc").notNull(),
     /** La etiqueta EXACTA que se le mostró al cliente. */
     label: text("label").notNull(),
+    /** 070 — El tipo de cita para el que se ofreció (NULL = agenda de siempre). */
+    typeKey: text("type_key"),
     offeredAt: timestamp("offered_at").notNull().defaultNow(),
   },
   (t) => [index("offered_slot_conv_idx").on(t.conversationId, t.startUtc)]

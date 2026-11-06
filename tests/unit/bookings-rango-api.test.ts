@@ -17,6 +17,8 @@ const SETTINGS = {
   timezone: "America/Mexico_City",
   connector: "enlace-fijo" as const,
   meetingLink: "https://meet.ejemplo.com/sala",
+  appointmentTypes: [],
+  defaultTypeKey: null,
 };
 
 type Call = { method: string; args: unknown[] };

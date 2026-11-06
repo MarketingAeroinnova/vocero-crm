@@ -153,7 +153,7 @@ export function BookingDrawer({
               {isSession && (
                 <Badge variant="secondary" className="gap-1">
                   {b.source === "ai" && <Sparkles className="h-3 w-3" />}
-                  {b.source === "ai" ? "Agendó la IA" : "Manual"}
+                  {b.source === "ai" ? "Agendó la IA" : b.source === "web" ? "Agendó el cliente" : "Manual"}
                 </Badge>
               )}
               {b.isTest && <Badge variant="secondary">Prueba del Laboratorio</Badge>}

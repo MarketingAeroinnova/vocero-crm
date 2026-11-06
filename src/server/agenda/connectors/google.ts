@@ -3,6 +3,7 @@ import { getEnv } from "@/lib/env";
 import {
   ConnectorError,
   type AgendaConnector,
+  type BusyResult,
   type MeetingRequest,
   type MeetingResult,
   type TestConnectionResult,
@@ -35,6 +36,12 @@ import {
  */
 
 export const GOOGLE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+/**
+ * 070 — Para leer qué horas tienen ocupadas las personas que atienden. Es el
+ * permiso más angosto que lo permite: solo «ocupado/libre», sin ver eventos.
+ */
+export const GOOGLE_FREEBUSY_SCOPE =
+  "https://www.googleapis.com/auth/calendar.freebusy";
 
 /** Cuántas veces se re-lee el evento esperando el enlace de Meet. */
 const CONFERENCE_POLLS = 3;
@@ -175,24 +182,39 @@ export const googleConnector: AgendaConnector<GoogleCreds> = {
       Date.parse(req.startUtc) + req.durationMinutes * 60_000
     ).toISOString();
 
+    // Lo de siempre: con videollamada. Una llamada o una visita presencial la
+    // desactivan (`meet: false`).
+    const withMeet = req.meet !== false;
+    const attendees = (req.attendees ?? []).filter(Boolean);
+    const params = new URLSearchParams();
+    if (withMeet) params.set("conferenceDataVersion", "1");
+    // Con invitados, Google les manda el correo de invitación. Sin ellos no
+    // hay a quién avisar y el parámetro no cambia nada.
+    if (attendees.length > 0) params.set("sendUpdates", "all");
+    const query = params.toString();
+
     const created = (await googleFetch(
       creds,
-      `${eventsPath(creds)}?conferenceDataVersion=1`,
+      `${eventsPath(creds)}${query ? `?${query}` : ""}`,
       {
         method: "POST",
         body: JSON.stringify({
           summary: req.topic,
           description: req.notes ?? undefined,
+          location: req.location ?? undefined,
+          attendees: attendees.length > 0 ? attendees.map((email) => ({ email })) : undefined,
           start: { dateTime: req.startUtc, timeZone: "UTC" },
           end: { dateTime: endUtc, timeZone: "UTC" },
-          conferenceData: {
-            createRequest: {
-              // Google exige un id de petición propio; el instante lo hace
-              // único por cita sin necesitar aleatoriedad.
-              requestId: `vocero-${Date.parse(req.startUtc)}`,
-              conferenceSolutionKey: { type: "hangoutsMeet" },
-            },
-          },
+          conferenceData: withMeet
+            ? {
+                createRequest: {
+                  // Google exige un id de petición propio; el instante lo hace
+                  // único por cita sin necesitar aleatoriedad.
+                  requestId: `vocero-${Date.parse(req.startUtc)}-${attendees[0] ?? ""}`,
+                  conferenceSolutionKey: { type: "hangoutsMeet" },
+                },
+              }
+            : undefined,
         }),
       }
     )) as GoogleEvent | null;
@@ -204,8 +226,9 @@ export const googleConnector: AgendaConnector<GoogleCreds> = {
 
     let link = meetLinkOf(created);
     // La conferencia se genera en segundo plano: la respuesta del insert suele
-    // venir `pending`. Se re-lee un par de veces antes de rendirse.
-    for (let i = 0; i < CONFERENCE_POLLS && !link; i++) {
+    // venir `pending`. Se re-lee un par de veces antes de rendirse. Sin
+    // videollamada no hay nada que esperar.
+    for (let i = 0; withMeet && i < CONFERENCE_POLLS && !link; i++) {
       await sleep(POLL_DELAY_MS);
       const refreshed = (await googleFetch(
         creds,
@@ -231,7 +254,7 @@ export const googleConnector: AgendaConnector<GoogleCreds> = {
     const endUtc = new Date(
       Date.parse(req.startUtc) + req.durationMinutes * 60_000
     ).toISOString();
-    await googleFetch(creds, eventsPath(creds, `/${encodeURIComponent(externalId)}`), {
+    await googleFetch(creds, eventsPath(creds, `/${encodeURIComponent(externalId)}?sendUpdates=all`), {
       method: "PATCH",
       body: JSON.stringify({
         start: { dateTime: req.startUtc, timeZone: "UTC" },
@@ -241,10 +264,49 @@ export const googleConnector: AgendaConnector<GoogleCreds> = {
   },
 
   async deleteMeeting(creds, externalId): Promise<void> {
-    await googleFetch(creds, eventsPath(creds, `/${encodeURIComponent(externalId)}`), {
+    // `sendUpdates=all`: si había invitados, les llega el aviso de cancelación.
+    await googleFetch(creds, eventsPath(creds, `/${encodeURIComponent(externalId)}?sendUpdates=all`), {
       method: "DELETE",
       allow404: true,
     });
+  },
+
+  async freeBusy(creds, calendars, fromUtc, toUtc): Promise<Record<string, BusyResult>> {
+    if (calendars.length === 0) return {};
+    const data = (await googleFetch(creds, "/freeBusy", {
+      method: "POST",
+      body: JSON.stringify({
+        timeMin: fromUtc,
+        timeMax: toUtc,
+        timeZone: "UTC",
+        items: calendars.map((id) => ({ id })),
+      }),
+    })) as {
+      calendars?: Record<
+        string,
+        { busy?: { start: string; end: string }[]; errors?: { reason?: string }[] }
+      >;
+    } | null;
+
+    const out: Record<string, BusyResult> = {};
+    for (const id of calendars) {
+      const c = data?.calendars?.[id];
+      if (!c) {
+        out[id] = { busy: [], error: "Google no devolvió ese calendario" };
+        continue;
+      }
+      // «notFound» = el calendario no está compartido con esta cuenta: se
+      // dice, porque ofrecer horas «libres» sin poder verlas sería mentir.
+      const reason = c.errors?.[0]?.reason;
+      out[id] = {
+        busy: (c.busy ?? []).map((b) => ({
+          startUtc: new Date(b.start).toISOString(),
+          endUtc: new Date(b.end).toISOString(),
+        })),
+        ...(reason ? { error: reason } : {}),
+      };
+    }
+    return out;
   },
 
   async testConnection(creds): Promise<TestConnectionResult> {

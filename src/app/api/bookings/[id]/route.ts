@@ -40,6 +40,9 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
           organizationId: session.organizationId,
           bookingId: id,
           startUtc: body.data.startUtc,
+          // 070 — El operador puede mover una cita con tipo fuera del horario
+          // (un sábado a solicitud); el choque con otra cita suya sigue mandando.
+          ignoreHours: true,
         });
         return Response.json({ ok: true, label: result.label });
       }

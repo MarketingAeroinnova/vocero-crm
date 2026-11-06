@@ -3,12 +3,19 @@ import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
 import { labelInTz } from "@/lib/time/slots";
-import { CONNECTOR_META, type ConnectorId } from "@/lib/agenda-connectors";
 import {
-  computeAvailability,
-  findSlot,
-  type AvailableSlot,
-} from "@/server/agenda/availability";
+  composeEventNotes,
+  composeEventTopic,
+  findType,
+  pickAppointmentType,
+  type AppointmentType,
+} from "@/lib/appointment-types";
+import { CONNECTOR_META, type ConnectorId } from "@/lib/agenda-connectors";
+import { computeAvailability, findSlot } from "@/server/agenda/availability";
+import {
+  computeAvailabilityForType,
+  findSlotForType,
+} from "@/server/agenda/availability-types";
 import { getSettings, type CalendarSettings } from "@/server/agenda/settings";
 import {
   clearOffers,
@@ -83,11 +90,27 @@ const FRESH_ALTERNATIVES = 3;
 export async function createSessionBooking(input: {
   organizationId: string;
   startUtc: string;
-  source: "manual" | "ai";
+  /**
+   * `manual` = el operador (puede reservar fuera de horario); `ai` = el bot;
+   * `web` = la persona desde la página pública de agenda. Los dos últimos solo
+   * reservan lo que la agenda ofrece.
+   */
+  source: "manual" | "ai" | "web";
+  /**
+   * 070 — Correo de la persona que agenda (página pública): si lo dio, también
+   * recibe la invitación de Google con el lugar o el enlace de Meet.
+   */
+  guestEmail?: string | null;
   /** Obligatoria en el camino conversacional; de ella sale el contacto. */
   conversationId?: string | null;
   /** Camino manual del operador. */
   contactId?: string | null;
+  /**
+   * 070 — Tipo de cita. Con tipos configurados se resuelve así: el que se pide;
+   * si no, el del horario ofrecido; si no, el predeterminado. Sin tipos
+   * configurados no se acepta ninguno: la agenda de siempre.
+   */
+  typeKey?: string | null;
   notes?: string | null;
   /**
    * true ⇒ exige que el instante figure entre los ofrecidos a la conversación
@@ -135,6 +158,7 @@ export async function createSessionBooking(input: {
   contactName = await getContactName(input.organizationId, contactId);
 
   // REGLA 1: solo se reserva lo que se ofreció.
+  let offered: OfferedSlot | null = null;
   if (input.requireOffer) {
     if (!input.conversationId) {
       throw new BookingError(
@@ -143,7 +167,8 @@ export async function createSessionBooking(input: {
       );
     }
     const offers = await getOffers(input.organizationId, input.conversationId);
-    if (!findOffered(offers, input.startUtc)) {
+    offered = findOffered(offers, input.startUtc, input.typeKey);
+    if (!offered) {
       throw new BookingError(
         "slot_not_offered",
         "Ese horario no se ofreció en esta conversación",
@@ -152,17 +177,29 @@ export async function createSessionBooking(input: {
     }
   }
 
-  // REGLA 2 (primera mitad): el hueco debe seguir libre AHORA.
-  const slot = await findSlot(input.organizationId, input.startUtc, {
-    now: input.now,
-    settings,
-  });
+  // 070 — El tipo de cita (si la agenda los tiene).
+  const type = resolveType(settings, input.typeKey, offered);
+
+  // REGLA 2 (primera mitad): el hueco debe seguir libre AHORA. Con tipo, «libre»
+  // es para ESA persona; el operador puede reservar fuera de horario (un sábado
+  // a solicitud) pero jamás encima de otra cita suya.
+  const slot = type
+    ? await findSlotForType(input.organizationId, type, input.startUtc, {
+        now: input.now,
+        settings,
+        ignoreHours: input.source === "manual",
+      })
+    : await findSlot(input.organizationId, input.startUtc, {
+        now: input.now,
+        settings,
+      });
   if (!slot) {
     throw new BookingError(
       "slot_taken",
       "Ese horario ya no está disponible",
       await refreshOffer(input.organizationId, input.conversationId, {
         now: input.now,
+        type,
       })
     );
   }
@@ -187,17 +224,29 @@ export async function createSessionBooking(input: {
         id: newId("booking"),
         organizationId: input.organizationId,
         kind: "session",
-        source: input.source === "ai" ? "ai" : "manual",
+        source: input.source,
         contactId,
         conversationId: input.conversationId ?? null,
         leadId: leadRows[0]?.id ?? null,
         scheduledAt: new Date(slot.startUtc),
-        durationMinutes: settings.slotMinutes,
+        durationMinutes: type ? type.durationMinutes : settings.slotMinutes,
         // Copia histórica: si el negocio cambia de conector, esta cita conserva
         // el que le tocó y sigue hablando con él al moverse o cancelarse.
         connector: settings.connector,
         isTest,
         notes: input.notes ?? null,
+        // 070 — Copias históricas del tipo: cambiar su configuración no
+        // reescribe lo ya agendado.
+        ...(type
+          ? {
+              appointmentType: type.key,
+              resource: type.resource,
+              attendeeEmail: type.attendeeEmail,
+              location: type.location ?? null,
+              bufferBeforeMinutes: type.bufferBeforeMinutes,
+              bufferAfterMinutes: type.bufferAfterMinutes,
+            }
+          : {}),
       })
       .returning();
     booking = inserted[0]!;
@@ -211,6 +260,7 @@ export async function createSessionBooking(input: {
         "Ese horario acaba de ocuparse",
         await refreshOffer(input.organizationId, input.conversationId, {
           now: input.now,
+          type,
         })
       );
     }
@@ -227,11 +277,11 @@ export async function createSessionBooking(input: {
   }
 
   // Efectos secundarios: ninguno puede revertir la cita.
-  const delivered = await deliverMeeting(booking, settings, contactName);
+  const delivered = await deliverMeeting(booking, settings, contactName, input.guestEmail);
   await advanceLeadStage(
     input.organizationId,
     contactId,
-    input.source === "ai" ? "bot" : "dueno"
+    input.source === "ai" ? "bot" : input.source === "web" ? "sistema" : "dueno"
   ).catch((err) => {
     console.warn(`[agenda] avance de etapa falló: ${err}`);
   });
@@ -291,6 +341,11 @@ export async function rescheduleBooking(input: {
   bookingId: string;
   startUtc: string;
   now?: Date;
+  /**
+   * 070 — Solo el operador: mover una cita con tipo fuera del horario (un
+   * sábado a solicitud). El choque con otra cita de la persona sigue mandando.
+   */
+  ignoreHours?: boolean;
 }): Promise<BookingResult> {
   const db = getDb();
   const booking = await getOwnBooking(input.organizationId, input.bookingId);
@@ -300,11 +355,19 @@ export async function rescheduleBooking(input: {
 
   const settings = await getSettings(input.organizationId);
   // excludeBookingId: la propia cita no debe bloquearse a sí misma.
-  const slot = await findSlot(input.organizationId, input.startUtc, {
-    excludeBookingId: booking.id,
-    now: input.now,
-    settings,
-  });
+  const type = findType(settings.appointmentTypes, booking.appointmentType);
+  const slot = type
+    ? await findSlotForType(input.organizationId, type, input.startUtc, {
+        excludeBookingId: booking.id,
+        now: input.now,
+        settings,
+        ignoreHours: input.ignoreHours === true,
+      })
+    : await findSlot(input.organizationId, input.startUtc, {
+        excludeBookingId: booking.id,
+        now: input.now,
+        settings,
+      });
   if (!slot) {
     throw new BookingError("slot_taken", "Ese horario ya no está disponible");
   }
@@ -406,6 +469,17 @@ export async function rescheduleForConversation(input: {
   const target = rows[0];
   if (!target) {
     throw new BookingError("not_found", "No hay una cita activa que mover");
+  }
+  // 070 — Una cita con tipo solo se mueve a un horario ofrecido PARA ese tipo.
+  if (
+    target.appointmentType &&
+    !findOffered(offers, input.startUtc, target.appointmentType)
+  ) {
+    throw new BookingError(
+      "slot_not_offered",
+      "Ese horario no se ofreció para este tipo de cita",
+      offers
+    );
   }
 
   const result = await rescheduleBooking({
@@ -511,10 +585,16 @@ export async function retryMeetingLink(input: {
 async function deliverMeeting(
   booking: BookingRow,
   settings: CalendarSettings,
-  contactName: string
+  contactName: string,
+  guestEmail?: string | null
 ): Promise<BookingRow> {
   if (booking.isTest) return booking;
   const connectorId = (booking.connector ?? settings.connector) as ConnectorId;
+  // 070 — Una llamada o una visita presencial no llevan enlace: el evento es
+  // para avisar y agendar a quien atiende, no para entrar a una sala.
+  const type = findType(settings.appointmentTypes, booking.appointmentType);
+  const expectsLink =
+    CONNECTOR_META[connectorId].perBookingLink && (type ? type.delivery === "meet" : true);
 
   try {
     const conn = await bindConnector(
@@ -526,16 +606,42 @@ async function deliverMeeting(
     // Si la cita YA tiene reunión, esto es un reintento: se vuelve a leer, no
     // se crea otra. Sin esta rama, reintentar el enlace de un evento de Google
     // dejaría al dueño con dos citas en su calendario.
-    const meeting =
-      booking.externalRef && conn.refreshMeeting
-        ? await conn.refreshMeeting(booking.externalRef)
-        : await conn.createMeeting({
-            topic: contactName ? `Cita — ${contactName}` : "Cita",
-            startUtc: booking.scheduledAt.toISOString(),
-            durationMinutes: booking.durationMinutes,
-            timezone: settings.timezone,
-            notes: booking.notes ?? undefined,
-          });
+    let meeting;
+    if (booking.externalRef && conn.refreshMeeting) {
+      meeting = await conn.refreshMeeting(booking.externalRef);
+    } else if (type) {
+      // 070 — Con tipo: título, descripción y lugar para quien atiende, y la
+      // invitación a esa persona (y solo a ella).
+      const brief = booking.contactId
+        ? await getContactBrief(booking.organizationId, booking.contactId)
+        : null;
+      meeting = await conn.createMeeting({
+        topic: composeEventTopic(type, contactName),
+        startUtc: booking.scheduledAt.toISOString(),
+        durationMinutes: booking.durationMinutes,
+        timezone: settings.timezone,
+        notes: composeEventNotes({
+          type,
+          contactName,
+          phone: brief?.phone,
+          ficha: brief?.ficha,
+          notes: booking.notes,
+          source: booking.source,
+        }),
+        attendees: attendeesOf(booking.attendeeEmail, guestEmail),
+        // Si la persona dio su correo, el evento también le avisa a ella.
+        location: booking.location ?? undefined,
+        meet: type.delivery === "meet",
+      });
+    } else {
+      meeting = await conn.createMeeting({
+        topic: contactName ? `Cita — ${contactName}` : "Cita",
+        startUtc: booking.scheduledAt.toISOString(),
+        durationMinutes: booking.durationMinutes,
+        timezone: settings.timezone,
+        notes: booking.notes ?? undefined,
+      });
+    }
 
     return await persistDelivery(booking.id, {
       externalRef: meeting.externalId ?? booking.externalRef,
@@ -543,7 +649,7 @@ async function deliverMeeting(
       // Un conector que promete enlace por cita y no lo trajo todavía deja la
       // cita "sin enlace" — reintentable. `enlace-fijo` sin sala configurada,
       // en cambio, no tiene nada pendiente: simplemente no hay enlace.
-      linkPending: CONNECTOR_META[connectorId].perBookingLink && !meeting.joinUrl,
+      linkPending: expectsLink && !meeting.joinUrl,
     });
   } catch (err) {
     console.warn(
@@ -622,14 +728,21 @@ async function withConnector(
 async function refreshOffer(
   organizationId: string,
   conversationId: string | null | undefined,
-  opts: { now?: Date }
+  opts: { now?: Date; type?: AppointmentType | null }
 ): Promise<OfferedSlot[]> {
-  let fresh: AvailableSlot[] = [];
+  let fresh: { startUtc: string; label: string }[] = [];
   try {
-    fresh = (await computeAvailability(organizationId, { now: opts.now })).slice(
-      0,
-      FRESH_ALTERNATIVES
-    );
+    // 070 — Las alternativas son del MISMO tipo: ofrecerle a quien pidió una
+    // llamada un horario de visita sería equivocarse de cita.
+    fresh = (
+      opts.type
+        ? (
+            await computeAvailabilityForType(organizationId, opts.type, {
+              now: opts.now,
+            })
+          ).slots
+        : await computeAvailability(organizationId, { now: opts.now })
+    ).slice(0, FRESH_ALTERNATIVES);
   } catch (err) {
     console.warn(`[agenda] no pude calcular alternativas: ${err}`);
     return [];
@@ -637,6 +750,7 @@ async function refreshOffer(
   const offers: OfferedSlot[] = fresh.map((s) => ({
     startUtc: s.startUtc,
     label: s.label,
+    typeKey: opts.type?.key ?? null,
   }));
   if (conversationId && offers.length > 0) {
     await replaceOffers(organizationId, conversationId, offers).catch((err) => {
@@ -644,6 +758,40 @@ async function refreshOffer(
     });
   }
   return offers;
+}
+
+/**
+ * 070 — Qué tipo de cita es (la regla vive en `pickAppointmentType`, que se
+ * prueba sola; aquí solo se traduce a los errores del dominio).
+ */
+function resolveType(
+  settings: CalendarSettings,
+  requested: string | null | undefined,
+  offered: OfferedSlot | null
+): AppointmentType | null {
+  const r = pickAppointmentType({
+    types: settings.appointmentTypes,
+    defaultTypeKey: settings.defaultTypeKey,
+    requested,
+    offeredTypeKey: offered?.typeKey,
+  });
+  if (r.ok) return r.type;
+  switch (r.reason) {
+    case "sin_tipos":
+      throw new BookingError("invalid", "Esta agenda no tiene tipos de cita");
+    case "desconocido":
+      throw new BookingError("invalid", `Tipo de cita desconocido: ${r.key}`);
+    case "falta":
+      throw new BookingError(
+        "invalid",
+        "Falta el tipo de cita y no hay uno predeterminado"
+      );
+    case "otro_tipo":
+      throw new BookingError(
+        "slot_not_offered",
+        "Ese horario se ofreció para otro tipo de cita"
+      );
+  }
 }
 
 async function getOwnBooking(
@@ -685,6 +833,40 @@ async function getContactName(
   return rows[0]?.name ?? "";
 }
 
+/** 070 — Quien atiende y, si dio su correo, quien agendó; sin repetidos. */
+function attendeesOf(
+  responsible: string | null,
+  guest: string | null | undefined
+): string[] | undefined {
+  const out = [responsible, guest?.trim().toLowerCase()].filter(
+    (e): e is string => Boolean(e)
+  );
+  const unique = [...new Set(out)];
+  return unique.length > 0 ? unique : undefined;
+}
+
+/** 070 — Lo que quien atiende necesita saber del contacto, para el evento. */
+async function getContactBrief(
+  organizationId: string,
+  contactId: string
+): Promise<{ phone: string | null; ficha: Record<string, unknown> | null }> {
+  const rows = await getDb()
+    .select({ phone: schema.contact.phone, ficha: schema.contact.ficha })
+    .from(schema.contact)
+    .where(
+      scoped(
+        schema.contact.organizationId,
+        organizationId,
+        eq(schema.contact.id, contactId)
+      )
+    )
+    .limit(1);
+  return {
+    phone: rows[0]?.phone ?? null,
+    ficha: (rows[0]?.ficha as Record<string, unknown> | null) ?? null,
+  };
+}
+
 /**
  * El lead avanza a la siguiente etapa abierta al agendar — solo hacia adelante,
  * nunca retrocede.
@@ -697,7 +879,7 @@ async function getContactName(
 async function advanceLeadStage(
   organizationId: string,
   contactId: string,
-  source: "bot" | "dueno"
+  source: "bot" | "dueno" | "sistema"
 ): Promise<void> {
   const db = getDb();
   const leads = await db

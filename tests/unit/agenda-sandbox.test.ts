@@ -27,6 +27,8 @@ const settings = {
   timezone: "America/Mexico_City",
   connector: "zoom" as const,
   meetingLink: null,
+  appointmentTypes: [],
+  defaultTypeKey: null,
 };
 
 const SLOT = "2026-08-05T15:00:00.000Z";

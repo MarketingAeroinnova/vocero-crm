@@ -26,6 +26,8 @@ export const dynamic = "force-dynamic";
 const createSchema = z.object({
   conversationId: z.string().min(1),
   startUtc: z.string().min(1),
+  /** 070 — Opcional: si se omite, vale el tipo del horario ofrecido. */
+  tipo: z.string().min(1).nullish(),
   notes: z.string().nullish(),
 });
 
@@ -46,6 +48,7 @@ export async function POST(req: Request) {
       organizationId: gate.organizationId,
       conversationId: body.data.conversationId,
       startUtc: body.data.startUtc,
+      typeKey: body.data.tipo ?? null,
       notes: body.data.notes ?? null,
       source: "ai",
       // La regla innegociable: el agente solo reserva lo que ya ofreció.

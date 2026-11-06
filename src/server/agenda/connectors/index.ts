@@ -3,6 +3,7 @@ import type { CalendarSettings } from "@/server/agenda/settings";
 import {
   ConnectorError,
   type AgendaConnector,
+  type BusyResult,
   type MeetingRequest,
   type MeetingResult,
   type TestConnectionResult,
@@ -41,10 +42,17 @@ export type BoundConnector = {
   testConnection(): Promise<TestConnectionResult>;
   /** Solo si el conector la implementa (enlaces asíncronos). */
   refreshMeeting?: (externalId: string) => Promise<MeetingResult>;
+  /** 070 — Solo si el conector sabe decir qué horas están ocupadas. */
+  freeBusy?: (
+    calendars: string[],
+    fromUtc: string,
+    toUtc: string
+  ) => Promise<Record<string, BusyResult>>;
 };
 
 function bind<C>(conn: AgendaConnector<C>, creds: C): BoundConnector {
   const refresh = conn.refreshMeeting;
+  const busy = conn.freeBusy;
   return {
     id: conn.id,
     createMeeting: (req) => conn.createMeeting(creds, req),
@@ -54,6 +62,9 @@ function bind<C>(conn: AgendaConnector<C>, creds: C): BoundConnector {
     testConnection: () => conn.testConnection(creds),
     refreshMeeting: refresh
       ? (externalId) => refresh.call(conn, creds, externalId)
+      : undefined,
+    freeBusy: busy
+      ? (calendars, fromUtc, toUtc) => busy.call(conn, creds, calendars, fromUtc, toUtc)
       : undefined,
   };
 }

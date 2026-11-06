@@ -70,7 +70,7 @@ const HELP: Record<ExternalConnector, { title: string; items: string[] }> = {
   google: {
     title: "Crea un proyecto en Google Cloud con la API de Calendar activada",
     items: [
-      "Necesitas Client ID, Client Secret y un refresh token con el permiso de eventos de calendario (calendar.events).",
+      "Necesitas Client ID, Client Secret y un refresh token con el permiso de eventos de calendario (calendar.events). Si usas tipos de cita con varias personas, agrega también calendar.freebusy para ver cuándo están ocupadas.",
       "IMPORTANTE: publica tu app OAuth «en producción». Si la dejas en modo prueba, Google revoca el permiso a los 7 días y las citas dejarán de crear su enlace sin previo aviso.",
     ],
   },

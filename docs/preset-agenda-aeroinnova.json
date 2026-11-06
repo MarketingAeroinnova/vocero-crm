@@ -1,0 +1,191 @@
+{
+  "types": [
+    {
+      "key": "llamada",
+      "label": "Llamada telefónica",
+      "resource": "cristobal",
+      "responsibleName": "Cristóbal Carvajal",
+      "attendeeEmail": "cristobalcarvajal2005@gmail.com",
+      "durationMinutes": 20,
+      "weeklyHours": {
+        "mon": [
+          {
+            "start": "10:00",
+            "end": "18:00"
+          }
+        ],
+        "tue": [
+          {
+            "start": "10:00",
+            "end": "18:00"
+          }
+        ],
+        "wed": [
+          {
+            "start": "10:00",
+            "end": "18:00"
+          }
+        ],
+        "thu": [
+          {
+            "start": "10:00",
+            "end": "18:00"
+          }
+        ],
+        "fri": [
+          {
+            "start": "10:00",
+            "end": "18:00"
+          }
+        ]
+      },
+      "bufferBeforeMinutes": 0,
+      "bufferAfterMinutes": 0,
+      "minNoticeHours": 2,
+      "maxDaysAhead": 21,
+      "delivery": "phone",
+      "description": "Un asesor te llama por teléfono para resolver tus dudas y orientarte."
+    },
+    {
+      "key": "oficina",
+      "label": "Entrevista en la oficina",
+      "resource": "jaime",
+      "responsibleName": "Jaime Andrés Silva",
+      "attendeeEmail": "jaimea.silva@aeroinnova.com",
+      "durationMinutes": 60,
+      "weeklyHours": {
+        "mon": [
+          {
+            "start": "10:00",
+            "end": "18:00"
+          }
+        ],
+        "tue": [
+          {
+            "start": "10:00",
+            "end": "18:00"
+          }
+        ],
+        "wed": [
+          {
+            "start": "10:00",
+            "end": "18:00"
+          }
+        ],
+        "thu": [
+          {
+            "start": "10:00",
+            "end": "18:00"
+          }
+        ],
+        "fri": [
+          {
+            "start": "10:00",
+            "end": "18:00"
+          }
+        ]
+      },
+      "bufferBeforeMinutes": 0,
+      "bufferAfterMinutes": 0,
+      "minNoticeHours": 24,
+      "maxDaysAhead": 21,
+      "delivery": "in_person",
+      "location": "Camino El Alba 9500, Torre B, oficina 405, Las Condes, Santiago",
+      "description": "Conversa en persona con nuestro equipo en nuestra oficina de Las Condes."
+    },
+    {
+      "key": "aerodromo",
+      "label": "Visita al aeródromo La Victoria",
+      "resource": "jaime",
+      "responsibleName": "Jaime Andrés Silva",
+      "attendeeEmail": "jaimea.silva@aeroinnova.com",
+      "durationMinutes": 60,
+      "weeklyHours": {
+        "mon": [
+          {
+            "start": "10:00",
+            "end": "13:00"
+          }
+        ],
+        "tue": [
+          {
+            "start": "10:00",
+            "end": "13:00"
+          }
+        ],
+        "wed": [
+          {
+            "start": "10:00",
+            "end": "13:00"
+          }
+        ],
+        "thu": [
+          {
+            "start": "10:00",
+            "end": "13:00"
+          }
+        ],
+        "fri": [
+          {
+            "start": "10:00",
+            "end": "13:00"
+          }
+        ]
+      },
+      "bufferBeforeMinutes": 60,
+      "bufferAfterMinutes": 60,
+      "minNoticeHours": 24,
+      "maxDaysAhead": 21,
+      "delivery": "in_person",
+      "location": "Aeródromo La Victoria, Chacabuco, comuna de Colina",
+      "description": "Conoce el aeródromo, los aviones y el movimiento de clases de nuestros alumnos. Solo en la mañana."
+    },
+    {
+      "key": "videollamada",
+      "label": "Videollamada",
+      "resource": "jaime",
+      "responsibleName": "Jaime Andrés Silva",
+      "attendeeEmail": "jaimea.silva@aeroinnova.com",
+      "durationMinutes": 45,
+      "weeklyHours": {
+        "mon": [
+          {
+            "start": "10:00",
+            "end": "18:00"
+          }
+        ],
+        "tue": [
+          {
+            "start": "10:00",
+            "end": "18:00"
+          }
+        ],
+        "wed": [
+          {
+            "start": "10:00",
+            "end": "18:00"
+          }
+        ],
+        "thu": [
+          {
+            "start": "10:00",
+            "end": "18:00"
+          }
+        ],
+        "fri": [
+          {
+            "start": "10:00",
+            "end": "18:00"
+          }
+        ]
+      },
+      "bufferBeforeMinutes": 0,
+      "bufferAfterMinutes": 0,
+      "minNoticeHours": 2,
+      "maxDaysAhead": 21,
+      "delivery": "meet",
+      "description": "Ideal si vives en regiones o en el extranjero: conversamos por Google Meet."
+    }
+  ],
+  "defaultTypeKey": null
+}

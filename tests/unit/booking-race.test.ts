@@ -22,6 +22,8 @@ const settings = {
   timezone: "America/Mexico_City",
   connector: "enlace-fijo" as const,
   meetingLink: "https://meet.ejemplo.com/sala",
+  appointmentTypes: [],
+  defaultTypeKey: null,
 };
 
 const SLOT = "2026-08-05T15:00:00.000Z";

@@ -11,7 +11,16 @@ import { scoped } from "@/lib/db/tenant";
  * en cada ronda (la vigente es siempre la última) y se limpia al reservar.
  */
 
-export type OfferedSlot = { startUtc: string; label: string };
+export type OfferedSlot = {
+  startUtc: string;
+  label: string;
+  /**
+   * 070 — Para qué tipo de cita se ofreció. Ausente/null = la agenda de
+   * siempre. Es lo que permite que quien reserva solo diga «ese horario» y el
+   * CRM sepa de qué cita se trata.
+   */
+  typeKey?: string | null;
+};
 
 /** Reemplaza TODA la oferta de la conversación, en una transacción. */
 export async function replaceOffers(
@@ -38,6 +47,7 @@ export async function replaceOffers(
         conversationId,
         startUtc: new Date(s.startUtc),
         label: s.label,
+        typeKey: s.typeKey ?? null,
       }))
     );
   });
@@ -52,6 +62,7 @@ export async function getOffers(
     .select({
       startUtc: schema.offeredSlot.startUtc,
       label: schema.offeredSlot.label,
+      typeKey: schema.offeredSlot.typeKey,
     })
     .from(schema.offeredSlot)
     .where(
@@ -66,6 +77,7 @@ export async function getOffers(
   return rows.map((r) => ({
     startUtc: r.startUtc.toISOString(),
     label: r.label,
+    typeKey: r.typeKey,
   }));
 }
 
@@ -96,11 +108,19 @@ export async function clearOffers(
  */
 export function findOffered(
   offers: OfferedSlot[],
-  whenISO: string
+  whenISO: string,
+  /** 070 — Si se pide un tipo, la oferta debe ser de ESE tipo. */
+  typeKey?: string | null
 ): OfferedSlot | null {
   const target = Date.parse(whenISO);
   if (Number.isNaN(target)) return null;
-  return offers.find((o) => Date.parse(o.startUtc) === target) ?? null;
+  return (
+    offers.find(
+      (o) =>
+        Date.parse(o.startUtc) === target &&
+        (!typeKey || (o.typeKey ?? null) === typeKey)
+    ) ?? null
+  );
 }
 
 /** Igualdad de instante, expuesta para tests. */

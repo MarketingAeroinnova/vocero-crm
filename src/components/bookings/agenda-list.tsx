@@ -96,7 +96,7 @@ export function AgendaList({
                     <span className="block truncate text-xs text-text-3">
                       {b.kind === "block"
                         ? `Bloqueo · ${b.durationMinutes} min`
-                        : `${b.durationMinutes} min · ${b.source === "ai" ? "Agendó la IA" : "Manual"}${b.isTest ? " · Prueba" : ""}`}
+                        : `${b.durationMinutes} min · ${b.source === "ai" ? "Agendó la IA" : b.source === "web" ? "Agendó el cliente" : "Manual"}${b.isTest ? " · Prueba" : ""}`}
                     </span>
                   </span>
                   {hasDeliveryIssue(b) && (

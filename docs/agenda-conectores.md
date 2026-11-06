@@ -53,8 +53,9 @@ diferencial: la cita aparece donde ya miras tu día.
 
 **Qué necesitas**: un proyecto en Google Cloud **del propio negocio** con la
 API de Calendar activada, y de ahí *Client ID*, *Client Secret* y un *refresh
-token* con el permiso `calendar.events`. El calendario destino es `primary`
-salvo que pongas otro.
+token* con el permiso `calendar.events` (y `calendar.freebusy` si usas
+[tipos de cita](agenda-tipos-de-cita.md), para leer cuándo están ocupadas las
+personas). El calendario destino es `primary` salvo que pongas otro.
 
 > ⚠️ **Publica tu app OAuth "en producción".** Si la dejas en modo prueba,
 > Google **revoca el refresh token a los 7 días** y tus citas dejarán de generar

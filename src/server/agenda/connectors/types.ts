@@ -29,6 +29,25 @@ export type MeetingRequest = {
   /** Zona IANA del negocio: el proveedor la usa para mostrarla a los suyos. */
   timezone: string;
   notes?: string;
+  /**
+   * 070 — A quién se invita. El proveedor les manda el correo; cada persona
+   * recibe SOLO lo suyo porque se crea un evento por cita.
+   */
+  attendees?: string[];
+  /** 070 — Dónde es (dirección o texto); se muestra en el evento. */
+  location?: string;
+  /**
+   * 070 — ¿Lleva videollamada? Por defecto sí (lo de siempre). Una llamada
+   * telefónica o una visita presencial no la necesitan: `false`.
+   */
+  meet?: boolean;
+};
+
+/** 070 — Lo ocupado de un calendario en un rango, ya en UTC. */
+export type BusyResult = {
+  busy: { startUtc: string; endUtc: string }[];
+  /** Si el proveedor no pudo leer ese calendario (no compartido, sin permiso). */
+  error?: string;
 };
 
 export type MeetingResult = {
@@ -71,6 +90,18 @@ export type AgendaConnector<Creds> = {
    * Un conector cuyo enlace llega de inmediato —Zoom— no la necesita.
    */
   refreshMeeting?(creds: Creds, externalId: string): Promise<MeetingResult>;
+
+  /**
+   * 070 — OPCIONAL: qué horas tiene ocupadas cada calendario. Solo dice
+   * «ocupado», jamás títulos ni detalles. Quien la use debe tolerar el fallo:
+   * si el proveedor no responde, se ofrece lo que el CRM sabe y se avisa.
+   */
+  freeBusy?(
+    creds: Creds,
+    calendars: string[],
+    fromUtc: string,
+    toUtc: string
+  ): Promise<Record<string, BusyResult>>;
 };
 
 /**

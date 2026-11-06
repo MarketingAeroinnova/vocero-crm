@@ -9,6 +9,8 @@ import {
   buildCandidateSlots,
   computeAvailability,
 } from "@/server/agenda/availability";
+import { buildTypeCandidates, findType } from "@/lib/appointment-types";
+import { computeAvailabilityForType } from "@/server/agenda/availability-types";
 import { getSettings } from "@/server/agenda/settings";
 import { armarHuecos, daysWithAgenda } from "@/server/agenda/spread";
 import { replaceOffers } from "@/server/agenda/offers";
@@ -98,29 +100,68 @@ export async function GET(req: Request) {
   const days = clamp(url.searchParams.get("days"), LIMITS.days);
 
   const settings = await getSettings(organizationId);
+
+  // 070 — Con tipos de cita configurados, se ofrecen los horarios de UN tipo:
+  // el que se pide (`tipo`) o, si no, el predeterminado.
+  const tipoPedido = url.searchParams.get("tipo")?.trim() || null;
+  const tipo = settings.appointmentTypes.length
+    ? findType(settings.appointmentTypes, tipoPedido ?? settings.defaultTypeKey)
+    : null;
+  if (settings.appointmentTypes.length && !tipo) {
+    return Response.json(
+      {
+        error: {
+          code: "invalid_body",
+          message: tipoPedido
+            ? `Tipo de cita desconocido: ${tipoPedido}`
+            : "Falta `tipo`: esta agenda tiene varios tipos de cita",
+        },
+        tipos: settings.appointmentTypes.map((t) => ({ key: t.key, label: t.label })),
+      },
+      { status: 422 }
+    );
+  }
+  const horizonte = tipo ? tipo.maxDaysAhead : settings.maxDaysAhead;
+
   const now = new Date();
   const hoy = todayInTz(now, settings.timezone);
   // Un día fuera de lo agendable ni se calcula: no hay nada que buscar.
-  const dentro =
-    !date || (date >= hoy && date <= addDaysISO(hoy, settings.maxDaysAhead));
-  const todos = dentro
-    ? await computeAvailability(organizationId, {
-        settings,
-        now,
-        ...(date ? { fromISO: date, toISO: date } : {}),
-      })
-    : [];
+  const dentro = !date || (date >= hoy && date <= addDaysISO(hoy, horizonte));
+  let calendarWarning: string | null = null;
+  let todos: { startUtc: string; endUtc: string; label: string }[];
+  if (!dentro) {
+    todos = [];
+  } else if (tipo) {
+    const r = await computeAvailabilityForType(organizationId, tipo, {
+      settings,
+      now,
+      ...(date ? { fromISO: date, toISO: date } : {}),
+    });
+    todos = r.slots;
+    calendarWarning = r.calendarWarning;
+  } else {
+    todos = await computeAvailability(organizationId, {
+      settings,
+      now,
+      ...(date ? { fromISO: date, toISO: date } : {}),
+    });
+  }
   const { slots, query } = armarHuecos({
     todos,
     timezone: settings.timezone,
     now,
-    maxDaysAhead: settings.maxDaysAhead,
+    maxDaysAhead: horizonte,
     limit,
     perDay,
     days,
     date,
     candidatosDelDia:
-      date && dentro ? buildCandidateSlots(settings, date, date).length : 0,
+      date && dentro
+        ? (tipo
+            ? buildTypeCandidates(tipo, settings.timezone, date, date)
+            : buildCandidateSlots(settings, date, date)
+          ).length
+        : 0,
   });
 
   // Reemplazo completo: la oferta vigente es siempre la última. Pero una
@@ -131,7 +172,12 @@ export async function GET(req: Request) {
     await replaceOffers(
       organizationId,
       conversationId,
-      slots.map((s) => ({ startUtc: s.startUtc, label: s.label }))
+      slots.map((s) => ({
+        startUtc: s.startUtc,
+        label: s.label,
+        // Sin tipos la oferta queda EXACTAMENTE como siempre.
+        ...(tipo ? { typeKey: tipo.key } : {}),
+      }))
     );
   }
 
@@ -149,6 +195,20 @@ export async function GET(req: Request) {
     // horas. Para un día concreto, se pregunta con `date`.
     diasConAgenda: daysWithAgenda(slots),
     query,
+    // 070 — De qué tipo de cita son estos horarios, y dónde/cómo se atiende.
+    ...(tipo
+      ? {
+          tipo: {
+            key: tipo.key,
+            label: tipo.label,
+            delivery: tipo.delivery,
+            location: tipo.location ?? null,
+            durationMinutes: tipo.durationMinutes,
+          },
+          // Texto si no se pudo cruzar con el calendario real de la persona.
+          calendarWarning,
+        }
+      : {}),
   });
 }
 

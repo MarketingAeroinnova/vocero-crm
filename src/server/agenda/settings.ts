@@ -7,6 +7,12 @@ import {
   type ConnectorId,
 } from "@/lib/agenda-connectors";
 import {
+  findType,
+  parseAppointmentTypes,
+  readAppointmentTypes,
+  type AppointmentType,
+} from "@/lib/appointment-types";
+import {
   isValidInterval,
   isValidTimeZone,
   WEEKDAYS,
@@ -43,6 +49,13 @@ export type CalendarSettings = {
   connector: ConnectorId;
   /** Sala fija del conector `enlace-fijo`; null ⇒ citas sin link. */
   meetingLink: string | null;
+  /**
+   * 070 — Tipos de cita. Vacío ⇒ la agenda de siempre (un solo horario). Con
+   * tipos, cada uno trae su responsable, horario, duración y traslado.
+   */
+  appointmentTypes: AppointmentType[];
+  /** Tipo que se usa si quien reserva no dice cuál. */
+  defaultTypeKey: string | null;
 };
 
 /** Lo que ve una instancia recién encendida: útil sin configurar nada. */
@@ -55,6 +68,8 @@ export const DEFAULT_CALENDAR_SETTINGS: CalendarSettings = {
   timezone: DEFAULT_TIMEZONE,
   connector: DEFAULT_CONNECTOR,
   meetingLink: null,
+  appointmentTypes: [],
+  defaultTypeKey: null,
 };
 
 export const LIMITS = {
@@ -89,6 +104,8 @@ export async function getSettings(
     // puede dejar la agenda inservible: se degrada al soberano.
     connector: isConnectorId(row.connector) ? row.connector : DEFAULT_CONNECTOR,
     meetingLink: row.meetingLink,
+    appointmentTypes: readAppointmentTypes(row.appointmentTypes),
+    defaultTypeKey: row.defaultTypeKey,
   };
 }
 
@@ -158,6 +175,10 @@ export async function upsertSettings(
     meetingLink: normalizeLink(
       input.meetingLink !== undefined ? input.meetingLink : current.meetingLink
     ),
+    // Los tipos se editan por su propia vía (`upsertAppointmentTypes`): guardar
+    // el horario general no debe tocarlos.
+    appointmentTypes: current.appointmentTypes,
+    defaultTypeKey: current.defaultTypeKey,
   };
 
   const db = getDb();
@@ -215,4 +236,52 @@ function normalizeLink(link: string | null | undefined): string | null {
 function clampInt(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+/**
+ * 070 — Guarda los tipos de cita (reemplazo completo). Valida ESTRICTO: quien
+ * guarda ve qué está mal, no que se le descartó un tipo en silencio.
+ *
+ * `defaultTypeKey` debe ser uno de los tipos; `null` lo quita.
+ */
+export async function upsertAppointmentTypes(
+  organizationId: string,
+  rawTypes: unknown,
+  defaultTypeKey: string | null
+): Promise<{ appointmentTypes: AppointmentType[]; defaultTypeKey: string | null }> {
+  const parsed = parseAppointmentTypes(rawTypes);
+  if (!parsed.ok) throw new CalendarSettingsError(parsed.errors.join("\n"));
+  const types = parsed.types;
+
+  if (defaultTypeKey !== null && !findType(types, defaultTypeKey)) {
+    throw new CalendarSettingsError(
+      `defaultTypeKey «${defaultTypeKey}» no es uno de los tipos`
+    );
+  }
+
+  // Si todavía no hay fila de ajustes, se crea con los valores actuales (los
+  // de fábrica): guardar tipos no debe cambiar nada más.
+  const current = await getSettings(organizationId);
+  const values = { appointmentTypes: types, defaultTypeKey };
+  await getDb()
+    .insert(schema.calendarSettings)
+    .values({
+      id: newId("calendarSettings"),
+      organizationId,
+      weeklyHours: current.weeklyHours,
+      slotMinutes: current.slotMinutes,
+      bufferMinutes: current.bufferMinutes,
+      minNoticeHours: current.minNoticeHours,
+      maxDaysAhead: current.maxDaysAhead,
+      timezone: current.timezone,
+      connector: current.connector,
+      meetingLink: current.meetingLink,
+      ...values,
+    })
+    .onConflictDoUpdate({
+      target: schema.calendarSettings.organizationId,
+      set: { ...values, updatedAt: new Date() },
+    });
+
+  return { appointmentTypes: types, defaultTypeKey };
 }

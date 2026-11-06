@@ -11,7 +11,7 @@ export type BookingListItem = {
   id: string;
   kind: "session" | "block";
   status: "agendada" | "realizada" | "no_show" | "cancelada";
-  source: "manual" | "ai";
+  source: "manual" | "ai" | "web";
   scheduledAtUtc: string;
   durationMinutes: number;
   date: string;
