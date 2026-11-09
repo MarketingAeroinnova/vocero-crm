@@ -52,7 +52,7 @@ aquí, en `public/email/`:
 - `correo-aeroinnova.html`: la plantilla. Marcadores `{{nombre}}`,
   `{{bloque_programa}}` y `{{texto_whatsapp}}`.
 - `programas.json`: el párrafo por programa de interés (`privado`, `comercial`,
-  `mcc`, `ltc`, `drones`) y `_default` si no eligió o no se reconoce.
+  `drones`) y `_default` si no eligió o no se reconoce.
 
 Se publican en `https://crm.aeroinnova.com/email/…`; el fragmento de WordPress las
 baja y las guarda 1 hora. Si el CRM no responde, sale un correo de texto simple.
