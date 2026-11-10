@@ -10,6 +10,7 @@ import {
   MessageSquareText,
   Search,
   Send,
+  Trash2,
   Upload,
   UserPlus,
   Users,
@@ -25,11 +26,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { SOURCE_LABELS } from "@/server/contact-source";
 import { priorityRank } from "@/server/leads/priority";
 import { PriorityBadge } from "@/components/pipeline/priority-picker";
+import { DeleteContactDialog } from "./delete-contact-dialog";
 import { ImportContactsDialog } from "./import-contacts-dialog";
 import { NewContactDialog } from "./new-contact-dialog";
 import { StartConversation } from "./start-conversation";
 
-export function ContactsClient() {
+export function ContactsClient({ canDelete = false }: { canDelete?: boolean }) {
   const router = useRouter();
   const [contacts, setContacts] = useState<ContactDto[]>([]);
   const [query, setQuery] = useState("");
@@ -40,6 +42,7 @@ export function ContactsClient() {
   const [creando, setCreando] = useState(false);
   const [importando, setImportando] = useState(false);
   const [escribiendo, setEscribiendo] = useState<ContactDto | null>(null);
+  const [eliminando, setEliminando] = useState<ContactDto | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Mismo rescate que en la Bandeja: lo tecleado antes de que hidrate el JS
@@ -88,6 +91,19 @@ export function ContactsClient() {
       body: JSON.stringify(body),
     }).catch(() => null);
     void refetch();
+  }
+
+  /** Devuelve el mensaje de error, o null si se eliminó. */
+  async function eliminar(c: ContactDto): Promise<string | null> {
+    const res = await fetch(`/api/contacts/${c.id}`, { method: "DELETE" }).catch(() => null);
+    if (!res) return "No se pudo conectar. Inténtalo de nuevo.";
+    if (!res.ok) {
+      const data = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+      return data?.error?.message ?? "No se pudo eliminar el contacto.";
+    }
+    setEliminando(null);
+    void refetch();
+    return null;
   }
 
   return (
@@ -248,12 +264,31 @@ export function ContactsClient() {
                       <Archive className="h-4 w-4" />
                     )}
                   </Button>
+                  {canDelete && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Eliminar contacto"
+                      title="Eliminar contacto"
+                      onClick={() => setEliminando(c)}
+                    >
+                      <Trash2 className="h-4 w-4 text-danger-text" />
+                    </Button>
+                  )}
                 </div>
               </li>
             ))}
           </ul>
         )}
       </div>
+
+      {eliminando && (
+        <DeleteContactDialog
+          contactName={eliminando.name || eliminando.phone || "este contacto"}
+          onCancel={() => setEliminando(null)}
+          onConfirm={() => eliminar(eliminando)}
+        />
+      )}
 
       {editing && (
         <EditDialog

@@ -244,3 +244,95 @@ export async function eliminarConversacion(
 
   return resultado;
 }
+
+/**
+ * Eliminar un contacto desde Contactos, sin pasar por una conversación.
+ *
+ * Los leads que entran por el formulario de la landing, por una importación o
+ * a mano no tienen conversación: no aparecen en la Bandeja y por eso no había
+ * por dónde borrarlos. Con una conversación real, el borrado completo ya
+ * existe (adjuntos, ficha, cita por venir) y se reutiliza tal cual. Sin ella
+ * solo cuelga de la persona lo que cae en cascada, y una cita por venir
+ * detiene el borrado igual que en el otro camino.
+ */
+export async function eliminarContacto(
+  organizationId: string,
+  contactId: string
+): Promise<ResultadoEliminar> {
+  const db = getDb();
+
+  const [real] = await db
+    .select({ id: schema.conversation.id })
+    .from(schema.conversation)
+    .where(
+      scoped(
+        schema.conversation.organizationId,
+        organizationId,
+        eq(schema.conversation.contactId, contactId),
+        eq(schema.conversation.isTest, false)
+      )
+    )
+    .limit(1);
+  if (real) return eliminarConversacion(organizationId, real.id, "contacto");
+
+  return db.transaction(async (tx): Promise<ResultadoEliminar> => {
+    const [org] = await tx
+      .select({ id: schema.organization.id, slug: schema.organization.slug })
+      .from(schema.organization)
+      .where(eq(schema.organization.id, organizationId))
+      .limit(1);
+    if (!org) return { ok: false, motivo: "no_encontrada" };
+
+    const [contact] = await tx
+      .select()
+      .from(schema.contact)
+      .where(
+        scoped(
+          schema.contact.organizationId,
+          organizationId,
+          eq(schema.contact.id, contactId)
+        )
+      )
+      // Dos personas eliminando a la vez: la segunda espera y luego no lo
+      // encuentra, en vez de borrar a medias.
+      .for("update")
+      .limit(1);
+    if (!contact) return { ok: false, motivo: "no_encontrada" };
+
+    const [cita] = await tx
+      .select({ cuando: schema.booking.scheduledAt })
+      .from(schema.booking)
+      .where(
+        scoped(
+          schema.booking.organizationId,
+          organizationId,
+          eq(schema.booking.status, "agendada"),
+          eq(schema.booking.isTest, false),
+          gt(schema.booking.scheduledAt, new Date()),
+          eq(schema.booking.contactId, contact.id)
+        )
+      )
+      .orderBy(schema.booking.scheduledAt)
+      .limit(1);
+    if (cita) return { ok: false, motivo: "cita_pendiente", cuando: cita.cuando };
+
+    await tx
+      .delete(schema.contact)
+      .where(
+        scoped(
+          schema.contact.organizationId,
+          organizationId,
+          eq(schema.contact.id, contact.id)
+        )
+      );
+
+    return {
+      ok: true,
+      alcance: "contacto",
+      organization: org,
+      contact: { id: contact.id, identity: contact.waIdentity },
+      // Nunca tuvo una conversación real: el cerebro no sabe de esta persona.
+      conversaciones: [],
+    };
+  });
+}

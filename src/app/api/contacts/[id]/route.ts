@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { apiError, parseBody, withAuth } from "@/lib/api";
+import { canConfigure } from "@/lib/auth/roles";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import {
@@ -9,6 +10,11 @@ import {
   serializeContact,
 } from "@/server/contacts";
 import { upsertFicha } from "@/server/bot/ficha";
+import { eliminarContacto } from "@/server/inbox/eliminar";
+import { publish } from "@/server/events/bus";
+import { construirEventoOlvido } from "@/server/brains/contract";
+import { avisarOlvido, type ResultadoOlvido } from "@/server/brains/deliver";
+import { newId } from "@/lib/db/ids";
 import { pauseConversations } from "@/server/contacts-import";
 import { cuentaComoAnuncio } from "@/lib/anuncios";
 import {
@@ -114,4 +120,61 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
   return Response.json({
     contact: serializeContact(updated[0], null, null, cuentaComoAnuncio(anuncio)),
   });
+});
+
+const FECHA_DE_CITA = new Intl.DateTimeFormat("es-MX", { dateStyle: "long" });
+
+/**
+ * Elimina el contacto con su lead, notas, etapa e historial. Irreversible y
+ * sin papelera: solo propietario o administrador (`canConfigure`); un miembro
+ * del equipo recibe 403 y no ve el botón.
+ */
+export const DELETE = withAuth(async (session, _req: Request, ctx: Params) => {
+  if (!canConfigure(session.role)) {
+    return apiError(
+      403,
+      "forbidden",
+      "Solo quien administra el negocio puede eliminar contactos"
+    );
+  }
+  const { id } = await ctx.params;
+
+  const resultado = await eliminarContacto(session.organizationId, id);
+  if (!resultado.ok) {
+    if (resultado.motivo === "cita_pendiente") {
+      return apiError(
+        409,
+        "cita_pendiente",
+        `Tiene una cita agendada para el ${FECHA_DE_CITA.format(resultado.cuando)}. Cancélala en Citas antes de eliminar.`
+      );
+    }
+    return apiError(404, "not_found", "Contacto no encontrado");
+  }
+
+  // Irreversible y sin papelera: que al menos quede quién y cuándo. Solo ids.
+  console.info(`[contactos] ${session.userId} eliminó ${id} en ${session.organizationId}`);
+
+  // Solo las conversaciones reales llegan al cerebro; un contacto sin
+  // conversación (formulario, importación) no le avisa a nadie.
+  let agente: ResultadoOlvido = "no_aplica";
+  const deletedAt = new Date();
+  for (const conversacion of resultado.conversaciones) {
+    const aviso = await avisarOlvido(
+      construirEventoOlvido({
+        eventId: newId("olvido"),
+        organization: resultado.organization,
+        conversation: conversacion,
+        contact: resultado.contact,
+        deletedAt,
+      })
+    );
+    if (aviso === "sin_confirmar" || agente === "no_aplica") agente = aviso;
+  }
+  for (const conversacion of resultado.conversaciones) {
+    publish(session.organizationId, {
+      type: "conversation.deleted",
+      data: { conversationId: conversacion.id, contactId: resultado.contact.id, contactDeleted: true },
+    });
+  }
+  return Response.json({ ok: true, agente });
 });

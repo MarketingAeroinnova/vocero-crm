@@ -9,6 +9,16 @@ imagen `ghcr.io/kevinrivm/vocero-crm:X.Y.Z`.
 
 ### Nuevo
 
+- **Eliminar un contacto desde Contactos**, sin pasar por una conversación.
+  Los leads que entran por el formulario de la landing, por una importación o
+  a mano no tienen conversación y no había por dónde borrarlos (solo
+  archivarlos). Un ícono de basurero por fila abre una confirmación;
+  `DELETE /api/contacts/[id]` se lleva el contacto, su lead, notas, etapa e
+  historial. Solo propietario o administrador (un miembro del equipo recibe
+  403 y no ve el botón). Una cita por venir detiene el borrado (409). Con
+  conversación real reutiliza el borrado de la 026 (adjuntos, ficha, aviso al
+  cerebro). Sin migración.
+
 - **«Conectar con Meta» (Embedded Signup v4)** en Ajustes → WhatsApp (spec
   066). Con `META_APP_ID`, `META_EMBEDDED_CONFIG_ID` y `META_APP_SECRET` en la
   instancia, quien administra la cuenta autoriza su WhatsApp en la ventana

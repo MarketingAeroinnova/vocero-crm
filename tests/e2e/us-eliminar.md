@@ -76,3 +76,15 @@ node --env-file=.env scripts/e2e-eliminar.mjs
   ve.
 - El diálogo dice qué se va y qué se queda, y cambia con la casilla «Borrar
   también el contacto y su lead». Escape cancela; Enter no confirma.
+
+## Eliminar desde Contactos (sin conversación)
+
+16. Crear un contacto a mano (o por el formulario) sin conversación. En
+    Contactos aparece el basurero; confirmar → `DELETE /api/contacts/[id]` 200
+    `agente: "no_aplica"` y el contacto deja de salir en Contactos y en el
+    Pipeline.
+17. Con una cita agendada por venir → 409 `cita_pendiente`, no se borra nada.
+18. Un miembro del equipo: `DELETE /api/contacts/[id]` → 403, y en Contactos no
+    ve el basurero.
+19. Un contacto con conversación real: mismo resultado que el `contacto=1` de
+    arriba (adjuntos, ficha y aviso al cerebro incluidos).
